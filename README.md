@@ -1,4 +1,4 @@
-# Homework 1: Currency Rate Services
+# Homework 2: Currency Rate Services
 
 Два сервиса на Java с использованием Spring Boot и gRPC.
 
@@ -12,35 +12,95 @@
 
 - Java 11+
 - Maven 3.6+
+- Apache ZooKeeper (для service discovery)
 
 ## Запуск
 
-### 1. Сборка
+Нужны **4 терминала** (или 3, если запускаете один провайдер). Порядок важен.
+
+---
+
+### Терминал 1 — ZooKeeper
 
 ```bash
+# Если контейнер zookeeper уже есть:
+docker start zookeeper
+
+# Если запускаете впервые или нужно пересоздать:
+# docker rm -f zookeeper
+# docker run -d --name zookeeper -p 2181:2181 zookeeper:3.8
+```
+
+Проверка: `docker ps` — контейнер zookeeper должен быть в статусе Up.
+
+---
+
+### Терминал 1 (или любой) — сборка проекта
+
+```bash
+cd ~/software-design
 mvn clean package -DskipTests
 ```
 
-### 2. Запуск Currency Rate Provider (сервер)
+Выполнить один раз перед первым запуском или после изменений в коде.
+
+---
+
+### Терминал 2 — первый провайдер
 
 ```bash
-cd currency-rate-provider && java -jar target/currency-rate-provider-0.0.1-SNAPSHOT.jar
+cd ~/software-design/currency-rate-provider
+java -jar target/currency-rate-provider-0.0.1-SNAPSHOT.jar
 ```
 
-Сервер поднимается на порту **9090** (gRPC).
+Дождаться строки `gRPC Server started, listening on address: *, port: 9090`. Окно не закрывать.
 
-### 3. Запуск Rate Printer (клиент)
+---
 
-В отдельном терминале (сначала запустите сервер):
+### Терминал 3 — второй провайдер (опционально, для балансировки)
 
 ```bash
-cd rate-printer && java -jar target/rate-printer-0.0.1-SNAPSHOT.jar
+cd ~/software-design/currency-rate-provider
+java -jar target/currency-rate-provider-0.0.1-SNAPSHOT.jar --server.port=8081 --grpc.server.port=9091 --spring.cloud.zookeeper.discovery.metadata.gRPC_port=9091
 ```
 
-Клиент каждые 5 секунд запрашивает курс и выводит его на экран, например:
+Дождаться строки `gRPC Server started, listening on address: *, port: 9091`. Окно не закрывать.
+
+---
+
+### Терминал 4 — Rate Printer (клиент)
+
+```bash
+cd ~/software-design/rate-printer
+java -jar target/rate-printer-0.0.1-SNAPSHOT.jar
 ```
-[2026-02-07T17:39:26] USDRUB: 79.6501
-[2026-02-07T17:39:31] USDRUB: 82.3346
+
+Появится вывод курса каждые 5 секунд, например:
+```
+[2026-02-14T16:30:00] USDRUB: 85.1234
+[2026-02-14T16:30:05] USDRUB: 78.5678
+```
+
+Клиент находит провайдеров через ZooKeeper и распределяет запросы между ними (round-robin).
+
+---
+
+### Порядок запуска
+
+1. ZooKeeper  
+2. Сборка (если нужно)  
+3. Первый провайдер  
+4. Второй провайдер (по желанию)  
+5. Rate Printer  
+
+---
+
+### Конфигурация ZooKeeper
+
+По умолчанию подключение к `localhost:2181`. Для другого адреса — в `application.properties` или через аргументы:
+
+```
+spring.cloud.zookeeper.connect-string=host:2181
 ```
 
 ## API
