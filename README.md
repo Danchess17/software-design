@@ -1,4 +1,4 @@
-# Homework 2: Currency Rate Services
+# Homework 3: Currency Rate Services
 
 Два сервиса на Java с использованием Spring Boot и gRPC.
 
@@ -12,7 +12,8 @@
 
 - Java 11+
 - Maven 3.6+
-- Apache ZooKeeper (для service discovery)
+- Docker (для ZooKeeper и Pact Broker)
+- Apache ZooKeeper — через Docker (см. ниже) или установленный отдельно
 
 ## Запуск
 
@@ -110,3 +111,65 @@ spring.cloud.zookeeper.connect-string=host:2181
 - Выход: `rate` — число (курс USDRUB)
 
 Курс формируется как базовая величина ~80.0 ± случайное значение для каждого запроса (± 10.0).
+
+## Контрактное тестирование (Pact)
+
+Используется Pact для проверки контракта между **rate-printer** (consumer) и **currency-rate-provider** (provider). Контракты хранятся в Pact Broker.
+
+**Нужен Docker Compose V2** (команда `docker compose` с пробелом). Проверка: `docker compose version` — должна быть версия 2.x. Если установлен только старый `docker-compose` (через pip), возможны ошибки; лучше установить [Docker Engine с плагином Compose](https://docs.docker.com/compose/install/).
+
+### 1. Запустить Pact Broker
+
+В корне проекта:
+
+```bash
+cd ~/software-design
+docker compose -f docker-compose-pact-broker.yml up -d
+```
+
+Проверка: в браузере открыть http://localhost:9292 — должна открыться страница Pact Broker.
+
+### 2. Проверить контракты (consumer → broker → provider)
+
+Порядок важен: сначала consumer публикует контракт, потом provider его подтягивает.
+
+**Шаг 1 — consumer (rate-printer):** тесты генерируют контракт и публикуют в broker.
+
+```bash
+cd ~/software-design/rate-printer
+mvn clean verify
+```
+
+**Шаг 2 — provider (currency-rate-provider):** тесты загружают контракты из broker и проверяют REST API `GET /api/rate`.
+
+```bash
+cd ~/software-design/currency-rate-provider
+mvn clean verify
+```
+
+Оба шага должны завершиться без ошибок. Контракты можно посмотреть в UI broker’а: http://localhost:9292
+
+### Сборка и проверка всего проекта из корня
+
+Из корня можно один раз прогнать сборку и все проверки (включая Pact):
+
+```bash
+cd ~/software-design
+mvn clean verify
+```
+
+При этом по очереди собираются и проходят фазу `verify` все модули: **currency-api** → **currency-rate-provider** (тесты + Pact-верификация по контрактам из broker) → **rate-printer** (тесты + публикация контрактов в broker). Выполнение занимает несколько минут.
+
+**Нужно заранее:** Pact Broker запущен (`docker compose -f docker-compose-pact-broker.yml up -d`), и порты 8080/9090 не заняты другими экземплярами приложений (иначе тесты могут падать с «Адрес уже используется»).
+
+### Без broker (только тесты consumer)
+
+Контракты можно сгенерировать локально без публикации:
+
+```bash
+cd ~/software-design/rate-printer
+mvn test -Dtest=CurrencyRateContractTest
+```
+
+Файлы появятся в `rate-printer/target/pacts/`. Полная верификация провайдера по контрактам из broker требует запущенного broker (шаги выше).
+

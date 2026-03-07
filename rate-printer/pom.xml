@@ -18,6 +18,7 @@
 
     <properties>
         <java.version>11</java.version>
+        <pact.broker.url>http://localhost:9292</pact.broker.url>
     </properties>
 
     <dependencies>
@@ -38,6 +39,17 @@
             <groupId>com.example</groupId>
             <artifactId>currency-api</artifactId>
             <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>au.com.dius.pact.consumer</groupId>
+            <artifactId>junit5</artifactId>
+            <version>4.5.13</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -63,6 +75,34 @@
                     <execution>
                         <goals>
                             <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.2</version>
+                <configuration>
+                    <useSystemClassLoader>false</useSystemClassLoader>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>au.com.dius.pact.provider</groupId>
+                <artifactId>maven</artifactId>
+                <version>4.5.13</version>
+                <configuration>
+                    <pactDirectory>target/pacts</pactDirectory>
+                    <pactBrokerUrl>${pact.broker.url}</pactBrokerUrl>
+                    <projectVersion>${project.version}</projectVersion>
+                    <trimSnapshot>true</trimSnapshot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>publish-pacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>publish</goal>
                         </goals>
                     </execution>
                 </executions>
