@@ -1,0 +1,6 @@
+# JMX Exporter standalone: подключение к ZooKeeper (см. docker-compose-monitoring.yml)
+hostPort: zookeeper:9010
+ssl: false
+lowercaseOutputName: true
+rules:
+  - pattern: ".*"
