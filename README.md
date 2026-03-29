@@ -159,6 +159,33 @@ curl -s http://localhost:8082/actuator/prometheus | head
 
 Дополнительно в Grafana: **Explore** — тот же Prometheus datasource, можно выполнить тот же PromQL, что и в Prometheus UI.
 
+### Логи и прикладные метрики (gRPC / REST)
+
+**Логи** пишутся в **консоль** процесса (терминал, где запущен JAR): при старте — строка с **версией** (`Application started: name=... version=...` из `build-info`); на **провайдере** — **gRPC** запрос/ответ (`GrpcServerObservabilityInterceptor`) и **REST** `GET /api/rate` (тело запроса/ответа); на **клиенте** — **gRPC** запрос/ответ (`GrpcClientLoggingInterceptor`). Клиент передаёт заголовок **`x-client-id`** (по умолчанию `client`, см. `grpc.observability.client-id` в `rate-printer`), чтобы на сервере различать вызывающих в метриках.
+
+**Прикладные метрики** (Micrometer, только на **провайдере**): префикс **`currency_`** в `/actuator/prometheus`. Примеры проверки:
+
+```bash
+curl -s http://localhost:8080/actuator/prometheus | grep '^currency_'
+```
+
+- **`currency_grpc_server_requests_seconds_*`** — длительность gRPC-вызовов; RPS: `sum by (client) (rate(currency_grpc_server_requests_seconds_count[1m]))` в Prometheus или Grafana **Explore**.
+- **`currency_grpc_server_errors_http500_total`** — ответы gRPC со статусом **INTERNAL** (учёт «как 500»).
+- **`currency_http_server_requests_seconds_*`** / **`currency_http_server_errors_http500_total`** — **REST** `/api/**`, идентификация вызывающего — IP (`client`).
+
+У всех этих серий в Prometheus, кроме явно перечисленных ниже полей, есть общий тег **`application`** из `management.metrics.tags.application` (**`service1`** / **`service2`** на соответствующем провайдере).
+
+| Логическое имя (Micrometer) | В Prometheus (основные серии) | Теги (лейблы) |
+|-----------------------------|-------------------------------|---------------|
+| `currency.grpc.server.requests` (Timer) | `currency_grpc_server_requests_seconds_count`, `_sum`, `_max`; то же имя с `quantile` 0.5, 0.95, 0.99 | **`application`**, **`client`** (`x-client-id`, иначе `unknown`) |
+| `currency.grpc.server.errors.http500` (Counter) | `currency_grpc_server_errors_http500_total` | **`application`**, **`client`** |
+| `currency.http.server.requests` (Timer) | `currency_http_server_requests_seconds_*` (как у Timer выше) | **`application`**, **`client`** (remote IP или `unknown`) |
+| `currency.http.server.errors.http500` (Counter) | `currency_http_server_errors_http500_total` | **`application`**, **`client`** |
+
+Средняя задержка gRPC по клиенту:  
+`sum by (client)(rate(currency_grpc_server_requests_seconds_sum[5m])) / sum by (client)(rate(currency_grpc_server_requests_seconds_count[5m]))`.  
+Перцентили: серии с `quantile="0.5"`, `0.95`, `0.99` у `currency_grpc_server_requests_seconds`.
+
 ## API
 
 **Currency Rate Provider** — gRPC-сервис `CurrencyRateService` с методом `GetUsdRubRate`:
