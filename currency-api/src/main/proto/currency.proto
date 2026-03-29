@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package com.example.currencyrateprovider;
+
+option java_multiple_files = true;
+option java_package = "com.example.currencyrateprovider.grpc";
+option java_outer_classname = "CurrencyProto";
+
+// The currency rate service definition.
+service CurrencyRateService {
+  // Returns the current USDRUB exchange rate.
+  rpc GetUsdRubRate(GetRateRequest) returns (GetRateResponse) {}
+}
+
+// Empty request - no parameters needed.
+message GetRateRequest {}
+
+// Response with the current USDRUB rate.
+message GetRateResponse {
+  double rate = 1;
+}

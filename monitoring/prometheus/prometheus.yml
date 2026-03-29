@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  # Spring Boot Actuator (Micrometer) — тег application: client | service1 | service2
+  - job_name: spring-actuator
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+          - host.docker.internal:8081
+          - host.docker.internal:8082
+
+  # ZooKeeper JVM через JMX Exporter (не формат Micrometer — отдельный дашборд в Grafana)
+  - job_name: zookeeper
+    static_configs:
+      - targets:
+          - zookeeper-jmx-exporter:5556
