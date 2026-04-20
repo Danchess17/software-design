@@ -1,0 +1,43 @@
+# Только выполнение (run): образы приложений должны быть собраны заранее — фактор V.
+# Сборка: см. README (docker build -f Dockerfile… -t …).
+# Профиль `docker` — конфиг из env (фактор X).
+#
+# Порт 2181 на хосте займёт ZooKeeper из этого compose — остановите другой ZK на 2181.
+
+services:
+  zookeeper:
+    image: zookeeper:3.8
+    ports:
+      - "2181:2181"
+    networks: [app]
+
+  currency-rate-provider:
+    image: currency-rate-provider:local
+    hostname: currency-rate-provider
+    networks: [app]
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_CLOUD_ZOOKEEPER_CONNECT_STRING: zookeeper:2181
+      SPRING_CLOUD_ZOOKEEPER_DISCOVERY_INSTANCE_HOST: currency-rate-provider
+    depends_on:
+      - zookeeper
+
+  rate-printer:
+    image: rate-printer:local
+    hostname: rate-printer
+    networks: [app]
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_CLOUD_ZOOKEEPER_CONNECT_STRING: zookeeper:2181
+    depends_on:
+      - zookeeper
+      - currency-rate-provider
+
+networks:
+  app:
+    driver: bridge

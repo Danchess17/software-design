@@ -1,0 +1,17 @@
+# Фактор V (12-factor): сборка и выполнение разделены (multi-stage).
+FROM maven:3.9.6-eclipse-temurin-11 AS build
+WORKDIR /build
+COPY pom.xml .
+COPY currency-api ./currency-api
+COPY currency-rate-provider ./currency-rate-provider
+COPY rate-printer ./rate-printer
+RUN mvn -q -pl rate-printer -am package -DskipTests
+
+FROM eclipse-temurin:11-jre-jammy
+WORKDIR /app
+RUN groupadd -r app && useradd -r -g app app
+COPY --from=build /build/rate-printer/target/rate-printer-*.jar /app/app.jar
+RUN chown app:app /app/app.jar
+USER app
+ENV JAVA_OPTS=""
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

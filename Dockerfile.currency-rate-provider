@@ -1,0 +1,18 @@
+# Фактор V (12-factor): сборка (build) и выполнение (run) — разные стадии образа.
+# Образ Maven без Alpine: protoc/grpc-java плагины собраны под glibc и в Alpine не исполняются.
+FROM maven:3.9.6-eclipse-temurin-11 AS build
+WORKDIR /build
+COPY pom.xml .
+COPY currency-api ./currency-api
+COPY currency-rate-provider ./currency-rate-provider
+COPY rate-printer ./rate-printer
+RUN mvn -q -pl currency-rate-provider -am package -DskipTests
+
+FROM eclipse-temurin:11-jre-jammy
+WORKDIR /app
+RUN groupadd -r app && useradd -r -g app app
+COPY --from=build /build/currency-rate-provider/target/currency-rate-provider-*.jar /app/app.jar
+RUN chown app:app /app/app.jar
+USER app
+ENV JAVA_OPTS=""
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

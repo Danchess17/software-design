@@ -1,4 +1,4 @@
-# Homework 4: Currency Rate Services
+# Homework 5: Currency Rate Services
 
 Два сервиса на Java с использованием Spring Boot и gRPC.
 
@@ -14,6 +14,79 @@
 - Maven 3.6+
 - Docker (для ZooKeeper и Pact Broker)
 - Apache ZooKeeper — через Docker (см. ниже) или установленный отдельно
+
+## Twelve-Factor App (доработка по домашке)
+
+| Фактор | Статус | Что сделано в репозитории |
+|--------|--------|---------------------------|
+| **V. Сборка, релиз, выполнение** | ✅ | **Сборка** — отдельно: `mvn package` или `docker build -f Dockerfile…` (multi-stage, Maven в build-стадии). **Релиз** — тегованный образ с JAR (`*:local` в примерах). **Выполнение** — только `docker compose … up` по `docker-compose-apps.yml` (без секции `build:`) или `java -jar` на хосте. |
+| **IX. Одноразовость** | ✅ | **Graceful shutdown:** `server.shutdown=graceful`, `spring.lifecycle.timeout-per-shutdown-phase=30s`; на провайдере дополнительно `grpc.server.shutdown-grace-period=30s` (завершение активных gRPC после SIGTERM). |
+| **X. Паритет dev / prod** | ✅ | Профиль **`docker`**: `application-docker.properties` — адреса ZooKeeper, порты и `instance-host` из **переменных окружения** (те же ключи, что и локально, другие значения). Запуск в Docker: `SPRING_PROFILES_ACTIVE=docker` (см. `docker-compose-apps.yml`). Локально без профиля — прежний `application.properties`. |
+| **XI. Журналирование** | ✅ | `logback-spring.xml` подключает только **`base.xml`** Spring Boot → логи **в stdout**, без файловых appenders. Прикладные логи (gRPC/REST, версия) — туда же. |
+
+Ниже — **по порядку факторов** из таблицы: что сделано в репозитории и **как проверить** (типовой сценарий через Docker из корня `~/software-design`). Порты **2181 / 8080 / 8082 / 9090** на хосте должны быть свободны (`docker compose -f docker-compose-apps.yml down` и при необходимости `ss -tlnp` / `sudo ss -tlnp`).
+
+### V. Сборка, релиз, выполнение
+
+**Реализация:** multi-stage **`Dockerfile.currency-rate-provider`** и **`Dockerfile.rate-printer`** (Maven в build-стадии, в runtime — JRE + JAR). В **`docker-compose-apps.yml`** у приложений только **`image:`** (`currency-rate-provider:local`, `rate-printer:local`), **без** секции **`build:`** — сборка образов и запуск контейнеров разведены.
+
+**Как проверить**
+
+1. Сборка образов (стадия **сборки/релиза**):
+
+   ```bash
+   cd ~/software-design
+   docker build -f Dockerfile.currency-rate-provider -t currency-rate-provider:local .
+   docker build -f Dockerfile.rate-printer -t rate-printer:local .
+   ```
+
+2. Запуск без пересборки в compose (стадия **выполнения**): `docker compose -f docker-compose-apps.yml up -d` — в выводе не должно быть долгого `mvn` для этих сервисов.
+
+3. Образы: `docker images | grep -E 'currency-rate-provider|rate-printer'` — есть тег **`local`**.
+
+4. Контейнеры: `docker compose -f docker-compose-apps.yml ps` — **Up**.
+
+5. Сервис отвечает: подождать **10–30 с** после первого **`up`**, затем `curl -sS -w '\nHTTP %{http_code}\n' http://127.0.0.1:8080/actuator/health` и то же для **`:8082`** — **`{"status":"UP"}`**, код **200**. (Сразу после старта возможен обрыв соединения — JVM ещё поднимает Tomcat. Если через **`localhost`** пусто — **`127.0.0.1`** или **`curl -4`**: часто **`localhost` → IPv6**, а проброс Docker — IPv4.)
+
+6. Дополнительно: `docker compose -f docker-compose-apps.yml rm -sf currency-rate-provider`, затем `docker rmi currency-rate-provider:local`, снова **`docker compose -f docker-compose-apps.yml up -d`** — сервис **currency-rate-provider** не поднимется: Docker попытается **pull** образа с хаба и получит отказ (**`pull access denied`** / репозиторий не существует). Compose **не запускает Maven-сборку**; без локального тега **`local`** релиза нет.
+
+Локально без Docker: **`mvn package`** и **`java -jar`** — см. раздел **«Запуск»** ниже.
+
+### IX. Одноразовость (корректное завершение)
+
+**Реализация:** в **`application.properties`** обоих модулей — **`server.shutdown=graceful`**, **`spring.lifecycle.timeout-per-shutdown-phase=30s`**; у провайдера ещё **`grpc.server.shutdown-grace-period=30s`**.
+
+**Как проверить** (нужен поднятый стек). У **`docker stop`** по умолчанию **10 с** до SIGKILL — меньше **30 с** фазы shutdown, поэтому используйте **`-t 45`**.
+
+1. Терминал 1: `docker compose -f docker-compose-apps.yml logs -f currency-rate-provider`
+2. Терминал 2: `docker compose -f docker-compose-apps.yml stop -t 45 currency-rate-provider`
+3. В логах терминала 1 — строки в духе **`Completed gRPC server shutdown`**, **`Commencing graceful shutdown…`**, **`Graceful shutdown complete`**, выход контейнера с **кодом 0**.
+
+Повторить при желании для **`rate-printer`**: **`logs -f rate-printer`** и **`stop -t 45 rate-printer`**. Затем снова **`docker compose -f docker-compose-apps.yml up -d`**.
+
+### X. Паритет разработки / эксплуатации
+
+**Реализация:** профиль **`docker`** — файлы **`application-docker.properties`** в **`currency-rate-provider`** и **`rate-printer`** (те же ключи, что в обычном конфиге, значения из **`${…}`** / env). В **`docker-compose-apps.yml`** — **`SPRING_PROFILES_ACTIVE=docker`** и **`SPRING_CLOUD_*`** (как в оркестраторе).
+
+**Как проверить**
+
+1. Поднять стек (как в **V**, шаги 1–2).
+
+2. В логах при старте: **`The following 1 profile is active: "docker"`** (или аналог Spring Boot).
+
+3. Убедиться, что приложение реально использует значения из окружения compose: в логах провайдера строка подключения к ZK — **`zookeeper:2181`** (имя сервиса из compose), а не **`localhost:2181`**.
+
+4. Health на портах из профиля: **`curl … http://127.0.0.1:8080/actuator/health`** и **`:8082`** — **UP** (тот же код и те же эндпоинты, что локально, другие только адреса/профиль).
+
+### XI. Журналирование
+
+**Реализация:** в каждом модуле **`logback-spring.xml`** — только **`include`** на **`org/springframework/boot/logging/logback/base.xml`** (вывод в консоль, без своих файловых appenders).
+
+**Как проверить**
+
+1. `docker compose -f docker-compose-apps.yml up -d`
+2. `docker compose -f docker-compose-apps.yml logs -f currency-rate-provider` — непрерывный поток строк (баннер Spring, Tomcat, ZK, gRPC, **`GrpcServerObservabilityInterceptor`** и т.д.) — это **stdout** контейнера, как заберёт оркестратор / `docker logs`.
+3. То же: **`logs -f rate-printer`**.
 
 ## Запуск
 
